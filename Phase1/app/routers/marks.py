@@ -1,0 +1,117 @@
+from fastapi import APIRouter, HTTPException, status
+from app.schemas.marks import MarkCreate, MarkUpdate
+from app.repositories.marks import (
+    create_mark,
+    get_marks_by_student_id,
+    update_mark,
+    delete_mark,
+)
+
+
+router = APIRouter(
+    tags=["Marks"]
+)
+
+
+@router.post("/students/{student_id}/marks", status_code=status.HTTP_201_CREATED)
+def add_mark(student_id: int, mark: MarkCreate):
+    try:
+        mark_id = create_mark(student_id, mark)
+
+        if mark_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": "STUDENT_NOT_FOUND",
+                    "message": f"Student {student_id} not found"
+                }
+            )
+
+        return {
+            "message": "Marks added successfully",
+            "mark_id": mark_id,
+            "student_id": student_id
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to add marks"
+        ) from error
+
+
+@router.get("/students/{student_id}/marks")
+def get_student_marks(student_id: int):
+    try:
+        marks = get_marks_by_student_id(student_id)
+        return marks
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve student marks"
+        ) from error
+
+
+@router.patch("/marks/{mark_id}")
+def update_student_mark(mark_id: int, mark: MarkUpdate):
+    try:
+        updated_id = update_mark(mark_id, mark)
+
+        if updated_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": "MARK_NOT_FOUND",
+                    "message": f"Mark {mark_id} not found"
+                }
+            )
+
+        return {
+            "message": "Marks updated successfully",
+            "mark_id": updated_id
+        }
+
+    except HTTPException:
+        raise
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error)
+        ) from error
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update marks"
+        ) from error
+
+
+@router.delete("/marks/{mark_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_student_mark(mark_id: int):
+    try:
+        deleted_id = delete_mark(mark_id)
+
+        if deleted_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": "MARK_NOT_FOUND",
+                    "message": f"Mark {mark_id} not found"
+                }
+            )
+
+        return
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete marks"
+        ) from error
