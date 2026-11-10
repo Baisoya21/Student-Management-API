@@ -5,15 +5,14 @@ from sqlalchemy.orm import Session
 from app.models import Student, Mark
 
 
-def get_student_report_data(student_id: int, exam: str):
-    # Will Retrieve an active student's details and marks for a particular exam.
 
+def get_student_report_data(student_id: int, exam: str, school_id: int):
+    # Retrieve an active student belonging to the authenticated school.
 
     connection = get_connection()
     cursor = connection.cursor(dictionary=True)
 
     try:
-        # Check whether the student exists and is active.
         cursor.execute(
             """
             SELECT
@@ -25,9 +24,11 @@ def get_student_report_data(student_id: int, exam: str):
                 `class`,
                 section
             FROM students
-            WHERE id = %s AND is_active = 1
+            WHERE id = %s
+              AND school_id = %s
+              AND is_active = 1
             """,
-            (student_id,)
+            (student_id, school_id)
         )
 
         student = cursor.fetchone()
@@ -64,7 +65,13 @@ def get_student_report_data(student_id: int, exam: str):
 
 
 
-def get_toppers(db: Session, exam: str, limit: int = 3):
+
+def get_toppers(
+    db: Session,
+    exam: str,
+    school_id: int,
+    limit: int = 3
+):
     # Calculate each student's overall percentage.
     percentage = (
         func.sum(Mark.marks_obtained)
@@ -88,6 +95,7 @@ def get_toppers(db: Session, exam: str, limit: int = 3):
             Mark.exam == exam,
             Mark.is_absent.is_(False),
             Mark.marks_obtained.is_not(None),
+            Student.school_id == school_id,
         )
         .group_by(
             Student.id,
@@ -130,7 +138,11 @@ def get_toppers(db: Session, exam: str, limit: int = 3):
     return toppers_by_class
 
 
-def get_subject_toppers(db: Session, exam: str):
+def get_subject_toppers(
+    db: Session,
+    exam: str,
+    school_id: int
+):
     # Calculate the percentage obtained in each subject.
     percentage = (
         Mark.marks_obtained
@@ -157,6 +169,7 @@ def get_subject_toppers(db: Session, exam: str):
             Mark.exam == exam,
             Mark.is_absent.is_(False),
             Mark.marks_obtained.is_not(None),
+            Student.school_id == school_id,
         )
         .order_by(
             Mark.subject,
@@ -190,7 +203,11 @@ def get_subject_toppers(db: Session, exam: str):
 
 
 
-def get_class_average(db: Session, class_name: str):
+def get_class_average(
+    db: Session,
+    class_name: str,
+    school_id: int
+):
     # Calculate the average marks for each subject.
     average_marks = func.avg(Mark.marks_obtained)
 
@@ -206,6 +223,7 @@ def get_class_average(db: Session, class_name: str):
             Student.class_name == class_name,
             Mark.is_absent.is_(False),
             Mark.marks_obtained.is_not(None),
+            Student.school_id == school_id,
         )
         .group_by(Mark.subject)
         .order_by(Mark.subject)
@@ -221,7 +239,12 @@ def get_class_average(db: Session, class_name: str):
     }
 
 
-def get_rank_list(db: Session, class_name: str, exam: str):
+def get_rank_list(
+    db: Session,
+    class_name: str,
+    exam: str,
+    school_id: int
+):
     # Calculate each student's overall percentage.
     percentage = (
         func.sum(Mark.marks_obtained)
@@ -246,6 +269,7 @@ def get_rank_list(db: Session, class_name: str, exam: str):
             Mark.exam == exam,
             Mark.is_absent.is_(False),
             Mark.marks_obtained.is_not(None),
+            Student.school_id == school_id,
         )
         .group_by(
             Student.id,
@@ -290,7 +314,11 @@ def get_rank_list(db: Session, class_name: str, exam: str):
     return rank_list
 
 
-def get_failing_students(db: Session, exam: str):
+def get_failing_students(
+    db: Session,
+    exam: str,
+    school_id: int
+):
 
     # Calculate the percentage obtained in each subject.
     percentage = (
@@ -320,6 +348,7 @@ def get_failing_students(db: Session, exam: str):
             Mark.marks_obtained.is_not(None),
             Mark.max_marks > 0,
             percentage < 33,
+            Student.school_id == school_id,
         )
         .order_by(
             Student.class_name,
@@ -352,7 +381,7 @@ def get_failing_students(db: Session, exam: str):
     return failing_students
 
 
-def get_student_improvement(db: Session):
+def get_student_improvement(db: Session, school_id: int):
 
     # Calculate each student's Mid-Term percentage.
     mid_term_percentage = (
@@ -369,6 +398,9 @@ def get_student_improvement(db: Session):
             Mark.is_absent.is_(False),
             Mark.marks_obtained.is_not(None),
             Mark.max_marks > 0,
+            Mark.student_id.in_(
+    select(Student.id).where(Student.school_id == school_id)
+),
         )
         .group_by(Mark.student_id)
         .subquery()
@@ -389,6 +421,9 @@ def get_student_improvement(db: Session):
             Mark.is_absent.is_(False),
             Mark.marks_obtained.is_not(None),
             Mark.max_marks > 0,
+            Mark.student_id.in_(
+    select(Student.id).where(Student.school_id == school_id)
+),
         )
         .group_by(Mark.student_id)
         .subquery()
@@ -420,6 +455,7 @@ def get_student_improvement(db: Session):
             final_percentage.c.student_id == Student.id,
         )
         .where(
+            Student.school_id == school_id,
             Student.is_active.is_(True),
             improvement > 0,
         )
@@ -445,7 +481,7 @@ def get_student_improvement(db: Session):
     ]
 
 
-def get_students_without_marks(db: Session):
+def get_students_without_marks(db: Session, school_id: int):
 
     # Find active students who do not have any marks.
     statement = (
@@ -457,6 +493,7 @@ def get_students_without_marks(db: Session):
             Student.section,
         )
         .where(
+            Student.school_id == school_id,
             Student.is_active.is_(True),
             ~Student.id.in_(
                 select(Mark.student_id)
@@ -481,7 +518,10 @@ def get_students_without_marks(db: Session):
     ]
 
 
-def get_data_quality_report(db: Session):
+
+def get_data_quality_report(db: Session, school_id: int):
+
+    # Count missing student information for this school.
     student_counts = db.execute(
         text("""
             SELECT
@@ -495,14 +535,23 @@ def get_data_quality_report(db: Session):
                     AS missing_email
 
             FROM students
-        """)
+            WHERE school_id = :school_id
+        """),
+        {"school_id": school_id}
     ).mappings().one()
 
+    # Count rejected records belonging to this school.
     rejected_count = db.execute(
         text("""
             SELECT COUNT(*) AS rejected_rows
-            FROM rejected_students
-        """)
+            FROM rejected_students rs
+            JOIN raw_students r
+                ON rs.raw_id = r.raw_id
+            JOIN schools s
+                ON TRIM(r.school_code) = s.code
+            WHERE s.id = :school_id
+        """),
+        {"school_id": school_id}
     ).mappings().one()
 
     return {

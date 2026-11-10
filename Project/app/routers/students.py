@@ -1,12 +1,25 @@
-from fastapi import APIRouter, HTTPException, status , Query
-from app.schemas.students import StudentCreate, StudentUpdate , StudentPatch
-from app.repositories.students import create_student, get_all_students ,get_student_by_id ,update_student ,patch_student ,delete_student
+from fastapi import APIRouter, HTTPException, status, Query, Depends
+from app.schemas.students import StudentCreate, StudentUpdate, StudentPatch
+from app.repositories.students import (
+    create_student,
+    get_all_students,
+    get_student_by_id,
+    update_student,
+    patch_student,
+    delete_student,
+)
 from app.repositories.reports import get_student_report_data
 from app.services.reports import generate_report_card
+from app.auth.api_key import get_current_school
+from app.models import School
+from app.auth.dependencies import get_current_user
+from app.auth.dependencies import require_admin
+
 
 router = APIRouter(
     prefix="/students",
-    tags=["Students"]
+    tags=["Students"],
+    dependencies=[Depends(get_current_user)]
 )
 
 
@@ -18,10 +31,12 @@ def list_students(
     class_name: str = Query(default="", alias="class"),
     section: str = Query(default=""),
     sort: str = Query(default=""),
-    include_inactive: bool = Query(default=False)
+    include_inactive: bool = Query(default=False),
+    school: School = Depends(get_current_school)
 ):
     try:
         students = get_all_students(
+            school.id,
             page,
             limit,
             search,
@@ -31,6 +46,7 @@ def list_students(
             include_inactive
         )
         return students
+
     except Exception as error:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -38,11 +54,13 @@ def list_students(
         ) from error
 
 
-
 @router.get("/{student_id}")
-def get_student(student_id: int):
+def get_student(
+    student_id: int,
+    school: School = Depends(get_current_school)
+):
     try:
-        student = get_student_by_id(student_id)
+        student = get_student_by_id(student_id, school.id)
 
         if student is None:
             raise HTTPException(
@@ -69,13 +87,17 @@ def get_student(student_id: int):
 @router.get("/{student_id}/report-card")
 def get_report_card(
     student_id: int,
-    exam: str = Query(default="Final", min_length=1)
+    exam: str = Query(default="Final", min_length=1),
+    school: School = Depends(get_current_school)
 ):
     try:
-        # Step 1: Get student details and exam marks from database
-        student_data = get_student_report_data(student_id, exam)
+        # Retrieve student details and marks for this school.
+        student_data = get_student_report_data(
+            student_id,
+            exam,
+            school.id
+        )
 
-        # Step 2: Check whether the student exists
         if student_data is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -85,10 +107,8 @@ def get_report_card(
                 }
             )
 
-        # Step 3: Generate the report card
         report_card = generate_report_card(student_data, exam)
 
-        # Step 4: Return the report card
         return report_card
 
     except HTTPException:
@@ -103,16 +123,20 @@ def get_report_card(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def add_student(student: StudentCreate):
+def add_student(
+    student: StudentCreate,
+    school: School = Depends(get_current_school),
+    current_user = Depends(require_admin)
+):
     try:
-        student_id = create_student(student)
+        student_id = create_student(student, school.id)
 
         if student_id is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={
                     "code": "SCHOOL_NOT_FOUND",
-                    "message": f"School {student.school_id} not found"
+                    "message": "Authenticated school not found"
                 }
             )
 
@@ -142,12 +166,19 @@ def add_student(student: StudentCreate):
         ) from error
 
 
-
-
 @router.put("/{student_id}")
-def replace_student(student_id: int, student: StudentUpdate):
+def replace_student(
+    student_id: int,
+    student: StudentUpdate,
+    school: School = Depends(get_current_school),
+    current_user = Depends(require_admin)
+):
     try:
-        updated_student_id = update_student(student_id, student)
+        updated_student_id = update_student(
+            student_id,
+            student,
+            school.id
+        )
 
         if updated_student_id is None:
             raise HTTPException(
@@ -184,11 +215,19 @@ def replace_student(student_id: int, student: StudentUpdate):
         ) from error
 
 
-
 @router.patch("/{student_id}")
-def partially_update_student(student_id: int, student: StudentPatch):
+def partially_update_student(
+    student_id: int,
+    student: StudentPatch,
+    school: School = Depends(get_current_school),
+    current_user = Depends(require_admin)
+):
     try:
-        updated_id = patch_student(student_id, student)
+        updated_id = patch_student(
+            student_id,
+            student,
+            school.id
+        )
 
         if updated_id is None:
             raise HTTPException(
@@ -225,11 +264,14 @@ def partially_update_student(student_id: int, student: StudentPatch):
         ) from error
 
 
-
 @router.delete("/{student_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_student(student_id: int):
+def remove_student(
+    student_id: int,
+    school: School = Depends(get_current_school),
+    current_user = Depends(require_admin)
+):
     try:
-        deleted_id = delete_student(student_id)
+        deleted_id = delete_student(student_id, school.id)
 
         if deleted_id is None:
             raise HTTPException(

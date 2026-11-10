@@ -1,7 +1,7 @@
 from app.database import get_connection
 
 
-def create_student(student_data):
+def create_student(student_data, school_id):
     connection = get_connection()
     cursor = connection.cursor(dictionary=True)
 
@@ -21,7 +21,7 @@ def create_student(student_data):
     """
 
     values = (
-        student_data.school_id,
+        school_id,
         student_data.roll_no,
         student_data.first_name,
         student_data.last_name,
@@ -35,12 +35,10 @@ def create_student(student_data):
     try:
         cursor.execute(
             "SELECT id FROM schools WHERE id = %s",
-            (student_data.school_id,)
+            (school_id,)
         )
 
-        school = cursor.fetchone()
-
-        if school is None:
+        if cursor.fetchone() is None:
             return None
 
         cursor.execute(query, values)
@@ -54,6 +52,7 @@ def create_student(student_data):
 
 
 def get_all_students(
+    school_id,
     page: int = 1,
     limit: int = 20,
     search: str = "",
@@ -68,14 +67,13 @@ def get_all_students(
     try:
         offset = (page - 1) * limit
 
-        # Include active students by default.
-        conditions = []
-        filter_values = []
+        # Every query is restricted to the authenticated school.
+        conditions = ["school_id = %s"]
+        filter_values = [school_id]
 
         if not include_inactive:
             conditions.append("is_active = 1")
 
-        # Search by first name, last name, or father's name.
         if search:
             conditions.append("""
                 (
@@ -93,23 +91,16 @@ def get_all_students(
                 search_pattern
             ])
 
-        # Filter by class.
         if class_name:
             conditions.append("`class` = %s")
             filter_values.append(class_name)
 
-        # Filter by section.
         if section:
             conditions.append("section = %s")
             filter_values.append(section)
 
-        # Build the WHERE clause.
         where_clause = " AND ".join(conditions)
 
-        if not where_clause:
-            where_clause = "1 = 1"
-
-        # Count matching students.
         count_query = f"""
             SELECT COUNT(*) AS total
             FROM students
@@ -119,7 +110,6 @@ def get_all_students(
         cursor.execute(count_query, tuple(filter_values))
         total = cursor.fetchone()["total"]
 
-        # Set default sorting.
         sort_by = "id"
         sort_order = "ASC"
 
@@ -130,7 +120,6 @@ def get_all_students(
             else:
                 sort_by = sort_field
 
-        # Allow only approved sorting columns.
         allowed_sort_fields = {
             "id",
             "first_name",
@@ -144,7 +133,6 @@ def get_all_students(
             sort_by = "id"
             sort_order = "ASC"
 
-        # Retrieve the requested page.
         students_query = f"""
             SELECT *
             FROM students
@@ -170,7 +158,7 @@ def get_all_students(
         connection.close()
 
 
-def get_student_by_id(student_id):
+def get_student_by_id(student_id, school_id):
     connection = get_connection()
     cursor = connection.cursor(dictionary=True)
 
@@ -192,38 +180,40 @@ def get_student_by_id(student_id):
                 updated_at
             FROM students
             WHERE id = %s
+              AND school_id = %s
               AND is_active = 1
         """
 
-        cursor.execute(query, (student_id,))
-        student = cursor.fetchone()
-
-        return student
+        cursor.execute(query, (student_id, school_id))
+        return cursor.fetchone()
 
     finally:
         cursor.close()
         connection.close()
 
 
-def update_student(student_id, student_data):
+def update_student(student_id, student_data, school_id):
     connection = get_connection()
     cursor = connection.cursor(dictionary=True)
 
     try:
         cursor.execute(
-            "SELECT id FROM students WHERE id = %s AND is_active = 1",
-            (student_id,)
+            """
+            SELECT id
+            FROM students
+            WHERE id = %s
+              AND school_id = %s
+              AND is_active = 1
+            """,
+            (student_id, school_id)
         )
 
-        student = cursor.fetchone()
-
-        if student is None:
+        if cursor.fetchone() is None:
             return None
 
         query = """
             UPDATE students
             SET
-                school_id = %s,
                 roll_no = %s,
                 first_name = %s,
                 last_name = %s,
@@ -232,11 +222,12 @@ def update_student(student_id, student_data):
                 section = %s,
                 email = %s,
                 date_of_birth = %s
-            WHERE id = %s AND is_active = 1
+            WHERE id = %s
+              AND school_id = %s
+              AND is_active = 1
         """
 
         values = (
-            student_data.school_id,
             student_data.roll_no,
             student_data.first_name,
             student_data.last_name,
@@ -246,6 +237,7 @@ def update_student(student_id, student_data):
             student_data.email,
             student_data.date_of_birth,
             student_id,
+            school_id,
         )
 
         cursor.execute(query, values)
@@ -258,19 +250,23 @@ def update_student(student_id, student_data):
         connection.close()
 
 
-def patch_student(student_id, student_data):
+def patch_student(student_id, student_data, school_id):
     connection = get_connection()
     cursor = connection.cursor(dictionary=True)
 
     try:
         cursor.execute(
-            "SELECT id FROM students WHERE id = %s AND is_active = 1",
-            (student_id,)
+            """
+            SELECT id
+            FROM students
+            WHERE id = %s
+              AND school_id = %s
+              AND is_active = 1
+            """,
+            (student_id, school_id)
         )
 
-        student = cursor.fetchone()
-
-        if student is None:
+        if cursor.fetchone() is None:
             return None
 
         updates = student_data.model_dump(
@@ -281,8 +277,8 @@ def patch_student(student_id, student_data):
         if not updates:
             return student_id
 
+        # school_id is intentionally not editable.
         allowed_columns = {
-            "school_id",
             "roll_no",
             "first_name",
             "last_name",
@@ -309,10 +305,12 @@ def patch_student(student_id, student_data):
         query = f"""
             UPDATE students
             SET {", ".join(set_parts)}
-            WHERE id = %s AND is_active = 1
+            WHERE id = %s
+              AND school_id = %s
+              AND is_active = 1
         """
 
-        values.append(student_id)
+        values.extend([student_id, school_id])
 
         cursor.execute(query, tuple(values))
         connection.commit()
@@ -324,24 +322,33 @@ def patch_student(student_id, student_data):
         connection.close()
 
 
-def delete_student(student_id):
+def delete_student(student_id, school_id):
     connection = get_connection()
     cursor = connection.cursor(dictionary=True)
 
     try:
         cursor.execute(
-            "SELECT id FROM students WHERE id = %s AND is_active = 1",
-            (student_id,)
+            """
+            SELECT id
+            FROM students
+            WHERE id = %s
+              AND school_id = %s
+              AND is_active = 1
+            """,
+            (student_id, school_id)
         )
 
-        student = cursor.fetchone()
-
-        if student is None:
+        if cursor.fetchone() is None:
             return None
 
         cursor.execute(
-            "UPDATE students SET is_active = 0 WHERE id = %s",
-            (student_id,)
+            """
+            UPDATE students
+            SET is_active = 0
+            WHERE id = %s
+              AND school_id = %s
+            """,
+            (student_id, school_id)
         )
 
         connection.commit()

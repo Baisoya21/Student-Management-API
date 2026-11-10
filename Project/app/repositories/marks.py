@@ -1,15 +1,20 @@
 from app.database import get_connection
 
-
-def create_mark(student_id, mark_data):
+def create_mark(student_id, mark_data, school_id):
     connection = get_connection()
     cursor = connection.cursor(dictionary=True)
 
     try:
-        # Check whether the student exists and is active
+        # Check whether the student belongs to this school.
         cursor.execute(
-            "SELECT id FROM students WHERE id = %s AND is_active = 1",
-            (student_id,)
+            """
+            SELECT id
+            FROM students
+            WHERE id = %s
+              AND school_id = %s
+              AND is_active = 1
+            """,
+            (student_id, school_id)
         )
 
         student = cursor.fetchone()
@@ -17,10 +22,8 @@ def create_mark(student_id, mark_data):
         if student is None:
             return None
 
-        # Prepare the mark values
         mark_values = mark_data.model_dump()
 
-        # Insert the mark into the database
         cursor.execute(
             """
             INSERT INTO marks (
@@ -52,7 +55,8 @@ def create_mark(student_id, mark_data):
         connection.close()
 
 
-def get_marks_by_student_id(student_id):
+
+def get_marks_by_student_id(student_id, school_id):
     connection = get_connection()
     cursor = connection.cursor(dictionary=True)
 
@@ -60,18 +64,21 @@ def get_marks_by_student_id(student_id):
         cursor.execute(
             """
             SELECT
-                id,
-                student_id,
-                subject,
-                exam,
-                marks_obtained,
-                max_marks,
-                is_absent
-            FROM marks
-            WHERE student_id = %s
-            ORDER BY id
+                m.id,
+                m.student_id,
+                m.subject,
+                m.exam,
+                m.marks_obtained,
+                m.max_marks,
+                m.is_absent
+            FROM marks m
+            JOIN students s
+                ON m.student_id = s.id
+            WHERE m.student_id = %s
+              AND s.school_id = %s
+            ORDER BY m.id
             """,
-            (student_id,)
+            (student_id, school_id)
         )
 
         marks = cursor.fetchall()
@@ -83,20 +90,26 @@ def get_marks_by_student_id(student_id):
         connection.close()
 
 
-def update_mark(mark_id, mark_data):
+def update_mark(mark_id, mark_data, school_id):
     connection = get_connection()
     cursor = connection.cursor(dictionary=True)
 
     try:
         # Retrieve the existing marks record
         cursor.execute(
-            """
-            SELECT id, marks_obtained, max_marks
-            FROM marks
-            WHERE id = %s
-            """,
-            (mark_id,)
-        )
+    """
+    SELECT
+        m.id,
+        m.marks_obtained,
+        m.max_marks
+    FROM marks m
+    JOIN students s
+        ON m.student_id = s.id
+    WHERE m.id = %s
+      AND s.school_id = %s
+    """,
+    (mark_id, school_id)
+)
 
         mark = cursor.fetchone()
 
@@ -152,12 +165,15 @@ def update_mark(mark_id, mark_data):
             return mark_id
 
         query = f"""
-            UPDATE marks
-            SET {", ".join(set_parts)}
-            WHERE id = %s
-        """
+        UPDATE marks m
+        JOIN students s
+        ON m.student_id = s.id
+        SET {", ".join(set_parts)}
+        WHERE m.id = %s
+        AND s.school_id = %s
+"""
 
-        values.append(mark_id)
+        values.extend([mark_id, school_id])
 
         cursor.execute(query, tuple(values))
         connection.commit()
@@ -169,16 +185,23 @@ def update_mark(mark_id, mark_data):
         connection.close()
 
 
-def delete_mark(mark_id: int):
+def delete_mark(mark_id: int, school_id: int):
     connection = get_connection()
     cursor = connection.cursor(dictionary=True)
 
     try:
         # Check whether the mark exists
         cursor.execute(
-            "SELECT id FROM marks WHERE id = %s",
-            (mark_id,)
-        )
+            """
+            SELECT m.id
+            FROM marks m
+            JOIN students s
+            ON m.student_id = s.id
+            WHERE m.id = %s
+            AND s.school_id = %s
+            """,
+    (mark_id, school_id)
+)
 
         mark = cursor.fetchone()
 
@@ -187,9 +210,16 @@ def delete_mark(mark_id: int):
 
         # Delete the mark
         cursor.execute(
-            "DELETE FROM marks WHERE id = %s",
-            (mark_id,)
-        )
+            """
+            DELETE m
+            FROM marks m
+            JOIN students s
+            ON m.student_id = s.id
+            WHERE m.id = %s
+            AND s.school_id = %s
+            """,
+    (mark_id, school_id)
+)
 
         connection.commit()
 

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from app.schemas.marks import MarkCreate, MarkUpdate
 from app.repositories.marks import (
     create_mark,
@@ -6,17 +6,26 @@ from app.repositories.marks import (
     update_mark,
     delete_mark,
 )
-
+from app.auth.api_key import get_current_school
+from app.models import School
+from app.auth.dependencies import get_current_user
+from app.auth.dependencies import require_admin
 
 router = APIRouter(
-    tags=["Marks"]
+    tags=["Marks"],
+    dependencies=[Depends(get_current_user)]
 )
 
 
 @router.post("/students/{student_id}/marks", status_code=status.HTTP_201_CREATED)
-def add_mark(student_id: int, mark: MarkCreate):
+def add_mark(
+    student_id: int,
+    mark: MarkCreate,
+    school: School = Depends(get_current_school),
+    current_user = Depends(require_admin)
+):
     try:
-        mark_id = create_mark(student_id, mark)
+        mark_id = create_mark(student_id, mark, school.id)
 
         if mark_id is None:
             raise HTTPException(
@@ -44,9 +53,13 @@ def add_mark(student_id: int, mark: MarkCreate):
 
 
 @router.get("/students/{student_id}/marks")
-def get_student_marks(student_id: int):
+def get_student_marks(
+    student_id: int,
+    school: School = Depends(get_current_school),
+    current_user = Depends(require_admin)
+):
     try:
-        marks = get_marks_by_student_id(student_id)
+        marks = get_marks_by_student_id(student_id, school.id)
         return marks
 
     except Exception as error:
@@ -57,9 +70,14 @@ def get_student_marks(student_id: int):
 
 
 @router.patch("/marks/{mark_id}")
-def update_student_mark(mark_id: int, mark: MarkUpdate):
+def update_student_mark(
+    mark_id: int,
+    mark: MarkUpdate,
+    school: School = Depends(get_current_school),
+    current_user = Depends(require_admin)
+):
     try:
-        updated_id = update_mark(mark_id, mark)
+        updated_id = update_mark(mark_id, mark, school.id)
 
         if updated_id is None:
             raise HTTPException(
@@ -92,9 +110,13 @@ def update_student_mark(mark_id: int, mark: MarkUpdate):
 
 
 @router.delete("/marks/{mark_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_student_mark(mark_id: int):
+def delete_student_mark(
+    mark_id: int,
+    school: School = Depends(get_current_school),
+    current_user = Depends(require_admin)
+):
     try:
-        deleted_id = delete_mark(mark_id)
+        deleted_id = delete_mark(mark_id, school.id)
 
         if deleted_id is None:
             raise HTTPException(

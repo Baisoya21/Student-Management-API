@@ -105,3 +105,31 @@ class School(Base):
         nullable=False,
         server_default=func.current_timestamp(),
     )
+
+
+class ApiUser(Base):
+    __tablename__ = "api_users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    school_id = Column(
+        Integer,
+        ForeignKey("schools.id"),
+        nullable=False,
+    )
+
+    username = Column(String(50), nullable=False, unique=True)
+
+    password_hash = Column(String(255), nullable=False)
+
+    role = Column(
+        String(10),
+        nullable=False,
+        server_default=text("'viewer'"),
+    )
+
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.current_timestamp(),
+    )
